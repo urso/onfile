@@ -9,7 +9,7 @@ import Data.List (nub, unionBy,foldl')
 import Time (ClockTime)
 import System (system)
 import System.IO.Error
-import System.Environment (getArgs, getProgName)
+import System.Environment (getArgs)
 import System.FilePath ((</>))
 import System.FilePath.Glob (namesMatching)
 import System.Directory (getDirectoryContents, getModificationTime, doesDirectoryExist)
@@ -47,34 +47,29 @@ runWithArgs (cmd:files) = run True =<< listFiles
 
     wait = sleep 2 >> return ()
 
-    exec = putStrLn "" >> putStrLn (replicate 80 '=') >> putStrLn "" >>
-           system cmd >> return ()
+    nl = putStrLn ""
+
+    exec = do nl; putStrLn (replicate 80 '='); nl
+              _ <- system cmd     -- just ignore exit code
+              return ()
 
 mkFileInfo :: FilePath -> IO FileInfo
 mkFileInfo a = FileInfo a <$> getModificationTime a
 
 readAllFileInfos :: Bool -> [String] -> IO [FileInfo]
-readAllFileInfos showHidden = foldl' f [] <.> mapM (readFileInfos showHidden)
+readAllFileInfos showHidden = fmap (foldl' f []) . mapM (readFileInfos showHidden)
   where f = unionBy ((==) `on` filePath)
 
 readFileInfos :: Bool -> String -> IO [FileInfo]
 readFileInfos showHidden pat = namesMatching pat >>= collect >>= 
                                mapM mkFileInfo . nub
   where
-    collect = concat <.> mapM collectForPath
-    collectForPath p = (p:) <$> ifM (doesDirectoryExist p) 
-                                    (recurs p) 
-                                    (return [])
+    collect = fmap concat . mapM collectForPath
+    collectForPath p = do exist <- doesDirectoryExist p
+                          if exist then recurs p else return [p]
 
     recurs a = collect . map (a</>) . filterHidden =<< getDirectoryContents a 
 
     filterDot = filter (`notElem` [".",".."])
     filterHidden = if showHidden then filterDot else filter ((/='.') . head)
-
-ifM :: (Monad m) => m Bool -> m b -> m b -> m b
-ifM mb mt me = do b <- mb; if b then mt else me
-
-infixl 8 <.> 
-(<.>) :: (Functor f) => (b -> c) -> (a -> f b) -> a -> f c
-(<.>) f m = fmap f . m
 
